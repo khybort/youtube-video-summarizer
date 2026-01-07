@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Environment file selection
 # Use: docker compose --env-file .env.development up
 # Or set COMPOSE_FILE environment variable

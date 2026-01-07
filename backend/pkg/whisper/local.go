@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"time"
 )
 
 type LocalWhisperProvider struct {
@@ -22,8 +23,10 @@ func NewLocalWhisperProvider(baseURL string) (*LocalWhisperProvider, error) {
 	}
 
 	return &LocalWhisperProvider{
-		baseURL:    baseURL,
-		httpClient: &http.Client{},
+		baseURL: baseURL,
+		httpClient: &http.Client{
+			Timeout: 10 * time.Minute, // Whisper transcription can take time for long videos
+		},
 	}, nil
 }
 
