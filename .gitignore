@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Environment
+.env
+.env.local
+.env.*.local
+# Keep example and template files
+!.env.example
+!.env.development.example
+!.env.production.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Test reports and results
+frontend/playwright-report/
+frontend/test-results/
+*.spec.ts.snap
+
+# Build artifacts
+backend/api
+backend/*.exe
+backend/*.test
