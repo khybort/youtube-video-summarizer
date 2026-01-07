@@ -1,0 +1,6 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Run pre-commit hook
+exec .git/hooks/pre-commit
+
