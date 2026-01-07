@@ -65,8 +65,7 @@ export function Sidebar() {
       {/* Footer */}
       <div className="p-4 border-t border-border">
         <div className="text-xs text-muted-foreground text-center">
-          <p className="font-medium">Powered by AI</p>
-          <p className="mt-1">Gemini • Groq • Ollama</p>
+          <p className="font-medium">Powered by khybort</p>
         </div>
       </div>
     </div>

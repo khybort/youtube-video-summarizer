@@ -33,16 +33,24 @@ type MessageHandler func(ctx context.Context, message kafka.Message) error
 
 // NewConsumer creates a new Kafka consumer
 func NewConsumer(cfg ConsumerConfig) *Consumer {
+	// Set default MaxWait if not provided
+	maxWait := cfg.MaxWait
+	if maxWait == 0 {
+		maxWait = 5 * time.Second
+	}
+
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     cfg.Brokers,
 		Topic:       cfg.Topic,
 		GroupID:     cfg.GroupID,
 		MinBytes:    cfg.MinBytes,
 		MaxBytes:    cfg.MaxBytes,
-		MaxWait:     cfg.MaxWait,
+		MaxWait:     maxWait,
 		StartOffset: cfg.StartOffset,
-		ReadBackoffMin: 100 * time.Millisecond,
-		ReadBackoffMax: 1 * time.Second,
+		// Significantly increase backoff to reduce CPU usage when no messages available
+		// ReadMessage will use these values automatically
+		ReadBackoffMin: 2 * time.Second,
+		ReadBackoffMax: 10 * time.Second,
 	})
 
 	return &Consumer{
@@ -64,17 +72,23 @@ func (c *Consumer) Consume(ctx context.Context, handler MessageHandler) error {
 			c.logger.Info("Consumer context cancelled, stopping")
 			return ctx.Err()
 		default:
-			// Fetch message with timeout
-			msgCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			message, err := c.reader.FetchMessage(msgCtx)
-			cancel()
-
+			// Use ReadMessage instead of FetchMessage - it automatically handles backoff
+			// and is more CPU efficient when no messages are available
+			message, err := c.reader.ReadMessage(ctx)
+			
 			if err != nil {
-				if err == context.DeadlineExceeded || err == context.Canceled {
-					continue
+				if err == context.Canceled || err == context.DeadlineExceeded {
+					return ctx.Err()
 				}
-				c.logger.Error("Failed to fetch message", zap.Error(err))
-				time.Sleep(1 * time.Second)
+				// For other errors, log and wait before retrying
+				c.logger.Error("Failed to read message", zap.Error(err))
+				// Wait before retrying to avoid tight loop
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(2 * time.Second):
+					// Continue to retry
+				}
 				continue
 			}
 

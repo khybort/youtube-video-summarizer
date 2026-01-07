@@ -77,7 +77,21 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
       KAFKA_LOG_RETENTION_HOURS: 168
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
-      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 600000
+      # Optimize for lower CPU usage
+      KAFKA_NUM_NETWORK_THREADS: 3
+      KAFKA_NUM_IO_THREADS: 4
+      KAFKA_NUM_REPLICA_FETCHERS: 1
+      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 10000
+      KAFKA_LOG_FLUSH_INTERVAL_MS: 1000
+      KAFKA_LOG_CLEANER_THREADS: 1
+      KAFKA_LOG_CLEANER_DEDUPE_BUFFER_SIZE: 134217728
+      KAFKA_LOG_CLEANER_ENABLE: "true"
+      KAFKA_COMPRESSION_TYPE: "snappy"
+      # Reduce background processing
+      KAFKA_BACKGROUND_THREADS: 4
+      KAFKA_QUOTA_WINDOW_NUM: 11
+      KAFKA_QUOTA_WINDOW_SIZE_SECONDS: 1
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 10s
@@ -168,17 +182,28 @@ services:
     container_name: youtube-analyzer-whisper
     environment:
       - WHISPER_MODEL=${WHISPER_MODEL:-base}
+      # Limit CPU usage
+      - OMP_NUM_THREADS=2
+      - MKL_NUM_THREADS=2
+      - NUMEXPR_NUM_THREADS=2
     volumes:
       - whisper_models:/root/.cache/huggingface
     ports:
       - "8001:8001"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
-      interval: 30s
+      interval: 60s
       timeout: 10s
       start_period: 60s
       retries: 3
     restart: unless-stopped
+    # Limit CPU usage with cpuset
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+        reservations:
+          cpus: '0.5'
 
   # ==================== OLLAMA (Optional) ====================
   ollama:
@@ -192,11 +217,76 @@ services:
       - local-llm
     restart: unless-stopped
 
+  # ==================== MONITORING ====================
+  # cAdvisor - Container metrics collector
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: youtube-analyzer-cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8082:8080"
+    restart: unless-stopped
+    networks:
+      - default
+
+  # Prometheus - Metrics collection and storage
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: youtube-analyzer-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - cadvisor
+    restart: unless-stopped
+    networks:
+      - default
+
+  # Grafana - Visualization dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: youtube-analyzer-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - default
+
 volumes:
   postgres_data:
   redis_data:
   whisper_models:
   ollama_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   default:

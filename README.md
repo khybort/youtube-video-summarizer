@@ -112,6 +112,8 @@ A full-stack AI-powered platform for analyzing, summarizing, and discovering sim
 - **Nginx** for frontend serving and API proxying
 - **Multi-stage builds** for optimized images
 - **Health checks** for all services
+- **Prometheus** + **Grafana** + **cAdvisor** for monitoring
+- **pprof** for performance profiling
 
 ### System Architecture
 
@@ -130,7 +132,8 @@ A full-stack AI-powered platform for analyzing, summarizing, and discovering sim
 ┌─────────────┐      ┌──────────────┐
 │   Backend   │◄────►│  PostgreSQL  │
 │  (Port 8080)│      │  (pgvector)  │
-└──────┬──────┘      └──────────────┘
+│  + pprof    │      └──────────────┘
+└──────┬──────┘
        │
        ├──────────────┐
        │              │
@@ -150,6 +153,20 @@ A full-stack AI-powered platform for analyzing, summarizing, and discovering sim
 │  │  Groq  │  │  Local   │   │
 │  │ Whisper│  │ Whisper  │   │
 │  └────────┘  └──────────┘   │
+└─────────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────┐
+│    Monitoring Stack         │
+│  ┌──────────┐ ┌──────────┐  │
+│  │ cAdvisor │ │Prometheus│  │
+│  │  :8082   │ │  :9090   │  │
+│  └──────────┘ └────┬─────┘  │
+│                    │         │
+│              ┌─────▼─────┐  │
+│              │  Grafana  │  │
+│              │   :3001   │  │
+│              └───────────┘  │
 └─────────────────────────────┘
 ```
 
@@ -214,6 +231,10 @@ A full-stack AI-powered platform for analyzing, summarizing, and discovering sim
    - Backend API: http://localhost:8080
    - Health Check: http://localhost:8080/health
    - Kafka UI: http://localhost:8081 (optional)
+   - Performance Dashboard (Grafana): http://localhost:3001 (admin/admin)
+   - Prometheus: http://localhost:9090
+   - cAdvisor: http://localhost:8082
+   - pprof: http://localhost:8080/debug/pprof/
 
 ### Local Development
 
@@ -327,6 +348,14 @@ uvicorn app:app --port 8001
 
 ### Health
 - `GET /health` - Health check endpoint
+- `GET /ready` - Readiness check endpoint
+
+### Performance Profiling (pprof)
+- `GET /debug/pprof/` - pprof index page
+- `GET /debug/pprof/heap` - Memory heap profile
+- `GET /debug/pprof/profile?seconds=30` - CPU profile (30 seconds)
+- `GET /debug/pprof/goroutine` - Goroutine profile
+- `GET /debug/pprof/block` - Block profile
 
 ## 🧪 Testing
 
@@ -405,7 +434,12 @@ youtube-video-summarizer/
 │   └── requirements.txt    # Python dependencies
 ├── docker-compose.yml      # Docker Compose configuration
 ├── Makefile                # Development commands
-└── scripts/                # Utility scripts
+├── scripts/                # Utility scripts
+└── monitoring/             # Monitoring stack configuration
+    ├── prometheus/         # Prometheus config
+    ├── grafana/            # Grafana dashboards & provisioning
+    ├── DASHBOARD_ACCESS.md # Dashboard access guide
+    └── CADVISOR_QUERIES.md # Service-based query examples
 ```
 
 ### Services Architecture
@@ -554,6 +588,46 @@ make status        # Show status of all services
 - Indexes on video status, created_at for efficient queries
 - Composite indexes for common query patterns
 
+## ⚡ Performance Optimizations
+
+### CPU & Memory Optimizations
+
+The system includes several optimizations to reduce CPU and memory usage:
+
+#### Kafka Consumer Optimizations
+- **ReadMessage** instead of FetchMessage for better backoff handling
+- **Increased MaxWait** (10s) to reduce polling frequency
+- **Exponential backoff** when no messages available
+- **ReadBackoffMin/Max** set to 2s/10s for efficient resource usage
+
+#### Kafka Broker Optimizations
+- Reduced thread counts (network: 3, IO: 4)
+- Increased log retention check interval (10 minutes)
+- Optimized compression (snappy)
+- Limited background threads
+
+#### Whisper Service Optimizations
+- CPU thread limiting (2 threads)
+- Single worker for transcriptions
+- Reduced beam size for faster processing
+- Docker CPU limits (max 2 CPUs)
+- Thread pool executor to prevent concurrent overload
+
+#### Producer Optimizations
+- Batch processing (batch size: 10)
+- Increased batch timeout (100ms)
+- RequiredAcks set to One for lower CPU usage
+
+### Monitoring & Profiling
+
+All performance metrics are available through:
+- **Grafana Dashboard**: Real-time CPU, Memory, Network metrics
+- **pprof**: Detailed Go profiling (CPU, Memory, Goroutines)
+- **Prometheus**: Queryable metrics with PromQL
+- **cAdvisor**: Container-level metrics
+
+See [Performance Monitoring Dashboard](#-performance-monitoring-dashboard) section for details.
+
 ## 🚢 Deployment
 
 ### Production Build
@@ -570,6 +644,7 @@ make prod
 3. Set `APP_ENV=production`
 4. Configure production database and Redis
 5. Set up monitoring and logging
+6. Enable monitoring stack: `docker compose up -d cadvisor prometheus grafana`
 
 ### Docker Compose Production
 
@@ -598,6 +673,75 @@ MIT License - see LICENSE file for details
 - **faster-whisper** for local speech-to-text
 - **pgvector** for vector similarity search
 - **shadcn/ui** for beautiful components
+
+## 📊 Performance Monitoring Dashboard
+
+### Grafana Dashboard (Real-time Metrics)
+
+**Access**: http://localhost:3001
+- **Username**: `admin`
+- **Password**: `admin` (change on first login)
+
+**Features**:
+- Real-time CPU and Memory usage for all containers
+- Network I/O metrics
+- Auto-refresh every 5 seconds
+- Customizable dashboards
+- Service-based filtering and comparison
+
+**Start Monitoring Stack**:
+```bash
+docker compose up -d cadvisor prometheus grafana
+```
+
+**Dashboard Includes**:
+- CPU Usage by Container (real-time graph)
+- Memory Usage by Container
+- Backend CPU/Memory (stat panels)
+- Kafka CPU monitoring
+- Network I/O (RX/TX) for all services
+- Service comparison views
+
+### pprof Endpoints (Backend Performance Profiling)
+
+**Access**: http://localhost:8080/debug/pprof/
+
+**Available Profiles**:
+- `/debug/pprof/` - Index page (list of all profiles)
+- `/debug/pprof/heap` - Memory heap profile
+- `/debug/pprof/profile?seconds=30` - CPU profile (30 seconds)
+- `/debug/pprof/goroutine` - Goroutine profile
+- `/debug/pprof/block` - Block profile
+
+**Usage Examples**:
+```bash
+# Get CPU profile (30 seconds)
+go tool pprof http://localhost:8080/debug/pprof/profile?seconds=30
+
+# Get memory profile
+go tool pprof http://localhost:8080/debug/pprof/heap
+
+# View in web UI
+go tool pprof -http=:8080 http://localhost:8080/debug/pprof/heap
+```
+
+### Other Monitoring Services
+
+- **Prometheus**: http://localhost:9090 (Metric queries with PromQL)
+- **cAdvisor**: http://localhost:8082 (Container metrics UI)
+
+**Service-Based Queries** (Prometheus):
+```promql
+# Backend CPU
+rate(container_cpu_usage_seconds_total{name="youtube-analyzer-backend"}[5m]) * 100
+
+# All services CPU comparison
+rate(container_cpu_usage_seconds_total{name=~"youtube-analyzer-.*"}[5m]) * 100
+```
+
+**Detailed Documentation**:
+- [monitoring/DASHBOARD_ACCESS.md](./monitoring/DASHBOARD_ACCESS.md) - Complete access guide
+- [monitoring/CADVISOR_QUERIES.md](./monitoring/CADVISOR_QUERIES.md) - Service-based queries
 
 ## 📞 Support
 

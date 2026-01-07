@@ -27,12 +27,15 @@ func NewProducer(cfg ProducerConfig) *Producer {
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(cfg.Brokers...),
 		Balancer:     &kafka.LeastBytes{},
-		RequiredAcks: kafka.RequireAll, // Wait for all replicas
+		RequiredAcks: kafka.RequireOne, // Only wait for leader to reduce CPU usage
 		Async:        false,             // Synchronous writes for reliability
 		WriteTimeout: 10 * time.Second,
-		BatchSize:    1, // Send immediately
-		BatchTimeout: 10 * time.Millisecond,
+		BatchSize:    10, // Batch messages to reduce CPU usage
+		BatchTimeout: 100 * time.Millisecond, // Increased to reduce frequent flushes
 		Compression:  kafka.Snappy, // Compress messages
+		ReadTimeout:  10 * time.Second,
+		WriteBackoffMin: 100 * time.Millisecond,
+		WriteBackoffMax: 1 * time.Second,
 	}
 
 	return &Producer{

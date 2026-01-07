@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	_ "net/http/pprof" // Add pprof endpoints
 	"os"
 	"os/signal"
 	"syscall"
@@ -194,6 +195,10 @@ func main() {
 	healthHandler := handlers.NewHealthHandler(db, logger)
 	router.GET("/health", healthHandler.Health)
 	router.GET("/ready", healthHandler.Readiness)
+
+	// pprof endpoints for performance profiling (enabled in all environments)
+	router.Any("/debug/pprof/*path", gin.WrapH(http.DefaultServeMux))
+	logger.Info("pprof endpoints enabled", zap.String("path", "/debug/pprof/"))
 
 	// API routes
 	api := router.Group("/api/v1")

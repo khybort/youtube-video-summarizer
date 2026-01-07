@@ -167,9 +167,9 @@ func StartSimilarityWorker(
 		Topic:       kafkapkg.TopicSimilarityRequested,
 		GroupID:     groupID,
 		Logger:      logger,
-		MinBytes:    10e3, // 10KB
+		MinBytes:    1, // Minimum bytes - reduce to 1 to avoid waiting for more data
 		MaxBytes:    10e6, // 10MB
-		MaxWait:     1 * time.Second,
+		MaxWait:     10 * time.Second, // Increased to reduce CPU usage when no messages
 		StartOffset: -1, // LastOffset
 	})
 
