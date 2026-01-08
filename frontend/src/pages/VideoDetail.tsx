@@ -26,7 +26,7 @@ export function VideoDetail() {
     queryKey: ['video', id],
     queryFn: () => videoService.getById(id!),
     enabled: !!id,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
     refetchOnMount: true,
     select: (data) => {
       const videosCache = queryClient.getQueryData<{ videos: any[] }>(['videos'])
@@ -41,15 +41,16 @@ export function VideoDetail() {
   })
 
   useEffect(() => {
-    if (id && video) {
-      if (video.status === 'processing' || video.status === 'pending') {
-        const interval = setInterval(() => {
-          refetch()
-        }, 5000)
-        return () => clearInterval(interval)
-      }
+    if (!id || !video) return
+    
+    // Only poll if video is processing or pending
+    if (video.status === 'processing' || video.status === 'pending') {
+      const interval = setInterval(() => {
+        refetch()
+      }, 5000)
+      return () => clearInterval(interval)
     }
-  }, [id, video?.status, refetch])
+  }, [id, video?.status]) // Removed refetch from dependencies to prevent infinite loop
 
   const analyzeMutation = useMutation({
     mutationFn: (videoId: string) => videoService.analyze(videoId),

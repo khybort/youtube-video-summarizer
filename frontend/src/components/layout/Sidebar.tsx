@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Home, Video, Settings, Search, DollarSign, Sparkles } from 'lucide-react'
+import { Home, Video, Settings, Search, DollarSign } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navigation = [
@@ -18,8 +18,13 @@ export function Sidebar() {
       {/* Logo Section */}
       <div className="p-6 border-b border-border">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-            <Sparkles className="w-6 h-6 text-primary-foreground" />
+          <div className="relative w-10 h-10 rounded-lg bg-gradient-to-br from-red-500 via-red-600 to-red-700 flex items-center justify-center shadow-lg shadow-red-500/25 group">
+            {/* YouTube play triangle */}
+            <svg className="w-5 h-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+            {/* Subtle AI indicator */}
+            <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full border-2 border-card opacity-80"></div>
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground">YouTube Analyzer</h1>

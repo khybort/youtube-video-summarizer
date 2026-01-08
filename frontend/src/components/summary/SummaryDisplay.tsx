@@ -3,8 +3,11 @@ import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { useSummary, useSummarizeVideo } from '@/hooks/useSummary'
 import { useToast } from '@/components/ui/toast-provider'
+import { videoService } from '@/services/videoService'
 import { Loader2, FileText, Download, Volume2, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface SummaryDisplayProps {
   videoId: string
@@ -12,12 +15,13 @@ interface SummaryDisplayProps {
 
 export function SummaryDisplay({ videoId }: SummaryDisplayProps) {
   const [summaryLanguage, setSummaryLanguage] = useState<string>('auto')
-  const { data: summary, isLoading, refetch } = useSummary(videoId)
+  const { data: summary, isLoading, refetch } = useSummary(videoId, summaryLanguage)
   const summarizeMutation = useSummarizeVideo()
   const { showToast } = useToast()
   const [summaryType, setSummaryType] = useState<'short' | 'detailed' | 'bullet_points'>('short')
   const [fromAudio, setFromAudio] = useState(false)
   const [isRegenerating, setIsRegenerating] = useState(false)
+  const [isTranslating, setIsTranslating] = useState(false)
 
   const handleSummarize = () => {
     const isRegenerate = !!summary
@@ -175,16 +179,16 @@ export function SummaryDisplay({ videoId }: SummaryDisplayProps) {
 
   return (
     <Card className="relative">
-      {/* Loading overlay when regenerating */}
+      {/* Loading overlay when regenerating or translating */}
       {isProcessing && summary && (
         <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 rounded-lg flex items-center justify-center">
           <div className="text-center space-y-2">
             <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
             <p className="text-sm font-medium">
-              {fromAudio ? 'Regenerating from audio...' : 'Regenerating summary...'}
+              {isTranslating ? 'Translating summary...' : fromAudio ? 'Regenerating from audio...' : 'Regenerating summary...'}
             </p>
             <p className="text-xs text-muted-foreground">
-              This may take a few moments
+              {isTranslating ? 'This will only take a moment' : 'This may take a few moments'}
             </p>
           </div>
         </div>
@@ -220,26 +224,60 @@ export function SummaryDisplay({ videoId }: SummaryDisplayProps) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         {summary && (
-          <>
-            <div className="prose prose-sm max-w-none dark:prose-invert relative">
-              <div className={`whitespace-pre-wrap text-sm ${isProcessing ? 'opacity-50' : ''}`}>
+          <div className={`relative ${isProcessing ? 'opacity-50' : ''}`}>
+            {/* Render Markdown content with professional styling */}
+            <div className="prose prose-slate dark:prose-invert max-w-none 
+                          prose-headings:font-semibold prose-headings:text-foreground
+                          prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:border-b prose-h2:pb-2 prose-h2:border-border
+                          prose-h3:text-lg prose-h3:mt-6 prose-h3:mb-3
+                          prose-p:text-base prose-p:leading-7 prose-p:text-foreground prose-p:my-4
+                          prose-ul:my-4 prose-ul:space-y-2
+                          prose-li:text-base prose-li:text-foreground prose-li:leading-7
+                          prose-strong:text-foreground prose-strong:font-semibold
+                          prose-code:text-sm prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded
+                          prose-blockquote:border-l-4 prose-blockquote:border-primary prose-blockquote:pl-4 prose-blockquote:italic
+                          prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80
+                          prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg prose-pre:overflow-x-auto">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h2: ({node, ...props}) => <h2 className="font-semibold text-xl mt-8 mb-4 pb-2 border-b border-border" {...props} />,
+                  h3: ({node, ...props}) => <h3 className="font-semibold text-lg mt-6 mb-3" {...props} />,
+                  p: ({node, ...props}) => <p className="text-base leading-7 text-foreground my-4" {...props} />,
+                  ul: ({node, ...props}) => <ul className="my-4 space-y-2 list-disc list-inside" {...props} />,
+                  li: ({node, ...props}) => <li className="text-base text-foreground leading-7" {...props} />,
+                  strong: ({node, ...props}) => <strong className="font-semibold text-foreground" {...props} />,
+                  code: ({node, inline, ...props}: any) => 
+                    inline ? (
+                      <code className="text-sm bg-muted px-1.5 py-0.5 rounded" {...props} />
+                    ) : (
+                      <code className="block text-sm bg-muted p-4 rounded-lg overflow-x-auto" {...props} />
+                    ),
+                  blockquote: ({node, ...props}) => (
+                    <blockquote className="border-l-4 border-primary pl-4 italic my-4" {...props} />
+                  ),
+                }}
+              >
                 {summary.content}
-              </div>
+              </ReactMarkdown>
             </div>
 
-            {summary.keyPoints && summary.keyPoints.length > 0 && (
-              <div className={isProcessing ? 'opacity-50' : ''}>
-                <h4 className="font-semibold mb-2">Key Points</h4>
-                <ul className="list-disc list-inside space-y-1 text-sm">
+            {/* Fallback: If keyPoints exist but weren't in markdown, show them separately */}
+            {summary.keyPoints && summary.keyPoints.length > 0 && 
+             !summary.content.includes('## Key Points') && 
+             !summary.content.includes('## Key Takeaways') && (
+              <div className="mt-6 pt-6 border-t border-border">
+                <h3 className="font-semibold text-lg mb-3">Key Points</h3>
+                <ul className="space-y-2 list-disc list-inside">
                   {summary.keyPoints.map((point, idx) => (
-                    <li key={idx}>{point}</li>
+                    <li key={idx} className="text-base text-foreground leading-7">{point}</li>
                   ))}
                 </ul>
               </div>
             )}
-          </>
+          </div>
         )}
 
         <div className="pt-4 border-t space-y-3">
@@ -256,8 +294,25 @@ export function SummaryDisplay({ videoId }: SummaryDisplayProps) {
             </select>
             <Select
               value={summaryLanguage}
-              onChange={(e) => setSummaryLanguage(e.target.value)}
-              disabled={isProcessing}
+              onChange={async (e) => {
+                const newLanguage = e.target.value
+                setSummaryLanguage(newLanguage)
+                
+                // If summary exists and language is not "auto", translate it
+                if (summary && newLanguage !== 'auto') {
+                  setIsTranslating(true)
+                  try {
+                    await videoService.translateSummary(videoId, newLanguage)
+                    refetch()
+                    showToast('Summary translated successfully', 'success')
+                  } catch (error: any) {
+                    showToast(error?.response?.data?.error || error?.message || 'Failed to translate summary', 'error')
+                  } finally {
+                    setIsTranslating(false)
+                  }
+                }
+              }}
+              disabled={isProcessing || isTranslating}
             >
               <option value="auto">Auto (Transcript Language)</option>
               <option value="en">English</option>

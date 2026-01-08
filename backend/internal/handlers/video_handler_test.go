@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -232,7 +231,6 @@ func TestVideoHandler_SummarizeVideo(t *testing.T) {
 		Title:     "Test Video",
 	}
 	mockVideoService.On("GetByID", mock.Anything, videoID).Return(expectedVideo, nil)
-	mockTranscriptService.On("GetByVideoID", mock.Anything, videoID).Return(nil, fmt.Errorf("not found"))
 	mockTranscriptService.On("GetOrCreateTranscript", mock.Anything, videoID, mock.MatchedBy(func(langCodes []string) bool {
 		return len(langCodes) == 0
 	})).Return(expectedTranscript, nil)
@@ -274,19 +272,6 @@ func TestVideoHandler_GetSimilarVideos(t *testing.T) {
 	}
 
 	videoID := uuid.New()
-	expectedVideo := &models.Video{
-		ID:        videoID,
-		YouTubeID: "test_video_123",
-		Title:     "Test Video",
-		Status:    "completed",
-	}
-	expectedTranscript := &models.Transcript{
-		ID:        uuid.New(),
-		VideoID:   videoID,
-		Content:   "Test transcript content",
-		Language:  "en",
-		Source:    "youtube",
-	}
 	expectedSimilar := []models.SimilarVideo{
 		{
 			Video: &models.Video{
@@ -299,10 +284,7 @@ func TestVideoHandler_GetSimilarVideos(t *testing.T) {
 		},
 	}
 
-	mockVideoService.On("GetByID", mock.Anything, videoID).Return(expectedVideo, nil)
-	// Handler first tries GetByVideoID, then generates embeddings if transcript exists
-	mockTranscriptService.On("GetByVideoID", mock.Anything, videoID).Return(expectedTranscript, nil)
-	mockEmbeddingService.On("GenerateVideoEmbeddings", mock.Anything, expectedVideo, expectedTranscript.Content).Return(&embedding.VideoEmbeddings{}, nil)
+	// Handler only calls FindSimilarVideos directly
 	mockSimilarityService.On("FindSimilarVideos", mock.Anything, videoID, 10, 0.5).Return(expectedSimilar, nil)
 
 	router := setupVideoRouter()
@@ -314,9 +296,6 @@ func TestVideoHandler_GetSimilarVideos(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	mockVideoService.AssertExpectations(t)
-	mockTranscriptService.AssertExpectations(t)
-	mockEmbeddingService.AssertExpectations(t)
 	mockSimilarityService.AssertExpectations(t)
 }
 
@@ -382,6 +361,14 @@ func (m *MockSummaryService) GenerateSummaryFromAudio(ctx context.Context, video
 
 func (m *MockSummaryService) GetByVideoID(ctx context.Context, videoID uuid.UUID) (*models.Summary, error) {
 	args := m.Called(ctx, videoID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Summary), args.Error(1)
+}
+
+func (m *MockSummaryService) TranslateSummary(ctx context.Context, videoID uuid.UUID, targetLanguage string) (*models.Summary, error) {
+	args := m.Called(ctx, videoID, targetLanguage)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

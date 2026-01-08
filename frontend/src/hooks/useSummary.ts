@@ -2,10 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { videoService } from '@/services/videoService'
 import type { Summary } from '@/types/video'
 
-export function useSummary(videoId: string) {
+export function useSummary(videoId: string, language?: string) {
   return useQuery<Summary>({
-    queryKey: ['summary', videoId],
-    queryFn: () => videoService.getSummary(videoId),
+    queryKey: ['summary', videoId, language],
+    queryFn: () => videoService.getSummary(videoId, language),
     enabled: !!videoId,
   })
 }

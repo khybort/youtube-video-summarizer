@@ -1,4 +1,4 @@
-import api from './api'
+import api, { apiWithExtendedTimeout } from './api'
 import type { Video, Transcript, Summary } from '@/types/video'
 
 // Transform backend snake_case to frontend camelCase
@@ -53,7 +53,7 @@ export const videoService = {
     api.delete(`/videos/${id}`).then(res => res.data),
 
   analyze: (id: string) =>
-    api.post(`/videos/${id}/analyze`).then(res => res.data),
+    apiWithExtendedTimeout.post(`/videos/${id}/analyze`).then(res => res.data),
 
   getTranscript: (id: string, language?: string) => {
     const params = language ? { language } : {}
@@ -69,7 +69,8 @@ export const videoService = {
 
   getSummary: (id: string, language?: string) => {
     const params = language ? { language } : {}
-    return api.get<any>(`/videos/${id}/summary`, { params }).then(res => ({
+    // Use extended timeout because summary generation can take time (transcription + LLM)
+    return apiWithExtendedTimeout.get<any>(`/videos/${id}/summary`, { params }).then(res => ({
       ...res.data,
       videoId: res.data.video_id || res.data.videoId,
       modelUsed: res.data.model_used || res.data.modelUsed,
@@ -80,7 +81,10 @@ export const videoService = {
   },
 
   summarize: (id: string, opts?: { type?: 'short' | 'detailed' | 'bullet_points'; from_audio?: boolean; language?: string }) =>
-    api.post(`/videos/${id}/summarize`, opts).then(res => res.data),
+    apiWithExtendedTimeout.post(`/videos/${id}/summarize`, opts).then(res => res.data),
+
+  translateSummary: (id: string, language: string) =>
+    api.post(`/videos/${id}/summary/translate`, { language }).then(res => res.data),
 
   getSimilar: (id: string, params?: { limit?: number; min_score?: number }) => {
     // Backend expects min_score, not minScore

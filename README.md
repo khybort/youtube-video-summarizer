@@ -748,5 +748,3 @@ rate(container_cpu_usage_seconds_total{name=~"youtube-analyzer-.*"}[5m]) * 100
 For issues, questions, or contributions, please open an issue on GitHub.
 
 ---
-
-**Built with ❤️ using Go, React, and AI**

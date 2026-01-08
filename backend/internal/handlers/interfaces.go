@@ -32,6 +32,7 @@ type TranscriptService interface {
 type SummaryService interface {
 	GenerateSummary(ctx context.Context, videoID uuid.UUID, transcript string, summaryType string, language string) (*models.Summary, error)
 	GenerateSummaryFromAudio(ctx context.Context, videoID uuid.UUID, audioPath string, summaryType string, language string) (*models.Summary, error)
+	TranslateSummary(ctx context.Context, videoID uuid.UUID, targetLanguage string) (*models.Summary, error)
 	GetByVideoID(ctx context.Context, videoID uuid.UUID) (*models.Summary, error)
 }
 

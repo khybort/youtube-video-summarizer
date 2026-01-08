@@ -66,6 +66,7 @@ func (o *OllamaProvider) GenerateCompletion(ctx context.Context, req CompletionR
 			"temperature": req.Temperature,
 			"top_p":       req.TopP,
 			"num_predict": req.MaxTokens,
+			"num_threads": 2, // Limit CPU threads to prevent excessive CPU usage
 		},
 	}
 
@@ -124,6 +125,7 @@ func (o *OllamaProvider) GenerateCompletionStream(ctx context.Context, req Compl
 				"temperature": req.Temperature,
 				"top_p":       req.TopP,
 				"num_predict": req.MaxTokens,
+				"num_threads": 2, // Limit CPU threads to prevent excessive CPU usage
 			},
 		}
 

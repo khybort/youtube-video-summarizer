@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -10,12 +11,22 @@ import { Search as SearchIcon, Filter, X } from 'lucide-react'
 import { EmptyState } from '@/components/ui/empty-state'
 
 export function Search() {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [query, setQuery] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlQuery = searchParams.get('q') || ''
+  
+  const [searchTerm, setSearchTerm] = useState(urlQuery)
+  const [query, setQuery] = useState(urlQuery)
   const [filters, setFilters] = useState({
     status: '',
     channel: '',
   })
+
+  // Update search term when URL query changes
+  useEffect(() => {
+    const urlQuery = searchParams.get('q') || ''
+    setSearchTerm(urlQuery)
+    setQuery(urlQuery)
+  }, [searchParams])
 
   const { data, isLoading } = useQuery({
     queryKey: ['videos', 'search', query, filters],
@@ -25,13 +36,21 @@ export function Search() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    setQuery(searchTerm)
+    const trimmedQuery = searchTerm.trim()
+    setQuery(trimmedQuery)
+    // Update URL with search query
+    if (trimmedQuery) {
+      setSearchParams({ q: trimmedQuery })
+    } else {
+      setSearchParams({})
+    }
   }
 
   const clearFilters = () => {
     setFilters({ status: '', channel: '' })
     setQuery('')
     setSearchTerm('')
+    setSearchParams({}) // Clear URL query parameter
   }
 
   const hasActiveFilters = Object.values(filters).some((v) => v !== '') || query !== ''
@@ -39,10 +58,11 @@ export function Search() {
   // Client-side filtering (backend doesn't support search yet)
   const allVideos = data?.videos || []
   const videos = allVideos.filter((video) => {
+    // If no query, match all. Otherwise, check if title, description, or channel matches
     const matchesSearch = !query || 
-      video.title.toLowerCase().includes(query.toLowerCase()) ||
+      (video.title.toLowerCase().includes(query.toLowerCase()) ||
       video.description?.toLowerCase().includes(query.toLowerCase()) ||
-      video.channelName?.toLowerCase().includes(query.toLowerCase())
+      video.channelName?.toLowerCase().includes(query.toLowerCase()))
     const matchesStatus = !filters.status || video.status === filters.status
     const matchesChannel = !filters.channel || video.channelName?.toLowerCase().includes(filters.channel.toLowerCase())
     return matchesSearch && matchesStatus && matchesChannel

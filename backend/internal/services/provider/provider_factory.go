@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"sync"
 
 	"go.uber.org/zap"
@@ -64,11 +65,18 @@ func (f *ProviderFactory) GetLLMProvider(ctx context.Context, operation string) 
 	}
 
 	// Get Ollama settings from settings or config
-	if settings.OllamaURL != "" {
+	// If settings has localhost, prefer config (which has correct Docker network URL)
+	if settings.OllamaURL != "" && !strings.Contains(settings.OllamaURL, "localhost") {
 		ollamaURL = settings.OllamaURL
 	} else {
 		ollamaURL = f.config.LLM.OllamaURL
 	}
+	
+	// Log the Ollama URL being used for debugging
+	f.logger.Debug("Using Ollama URL", 
+		zap.String("url", ollamaURL),
+		zap.String("from_settings", settings.OllamaURL),
+		zap.String("from_config", f.config.LLM.OllamaURL))
 
 	if settings.OllamaModel != "" {
 		ollamaModel = settings.OllamaModel

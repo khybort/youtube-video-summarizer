@@ -47,6 +47,7 @@ func RegisterVideoRoutes(
 	videos.GET("/:id/transcript/languages", handler.GetAvailableLanguages)
 		videos.GET("/:id/summary", handler.GetSummary)
 		videos.POST("/:id/summarize", handler.SummarizeVideo)
+		videos.POST("/:id/summary/translate", handler.TranslateSummary)
 		videos.GET("/:id/similar", handler.GetSimilarVideos)
 	}
 }
@@ -406,6 +407,19 @@ func (h *VideoHandler) GetSummary(c *gin.Context) {
 	// First try to get existing summary
 	summary, err := h.summaryService.GetByVideoID(c.Request.Context(), id)
 	if err == nil && summary != nil {
+		// If language is specified and different from "auto", translate the summary
+		if language != "" && language != "auto" {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+			defer cancel()
+			
+			translatedSummary, translateErr := h.summaryService.TranslateSummary(ctx, id, language)
+			if translateErr == nil {
+				c.JSON(http.StatusOK, translatedSummary)
+				return
+			}
+			// If translation fails, return original summary
+			h.logger.Warn("Failed to translate summary, returning original", zap.Error(translateErr))
+		}
 		c.JSON(http.StatusOK, summary)
 		return
 	}
@@ -577,6 +591,63 @@ func (h *VideoHandler) SummarizeVideo(c *gin.Context) {
 
 	// Update video status
 	h.videoService.UpdateStatus(ctx, id, "completed")
+
+	c.JSON(http.StatusOK, summary)
+}
+
+func (h *VideoHandler) TranslateSummary(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.AbortWithError(c, errors.New(
+			errors.ErrorCodeBadRequest,
+			errors.SubCodeInvalidInput,
+			"Invalid video ID format",
+		))
+		return
+	}
+
+	var req struct {
+		Language string `json:"language"` // target language code (e.g., "en", "tr", "auto")
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.AbortWithError(c, errors.New(
+			errors.ErrorCodeBadRequest,
+			errors.SubCodeInvalidInput,
+			"Invalid request body",
+		))
+		return
+	}
+
+	if req.Language == "" || req.Language == "auto" {
+		errors.AbortWithError(c, errors.New(
+			errors.ErrorCodeBadRequest,
+			errors.SubCodeInvalidInput,
+			"Language is required and cannot be 'auto'",
+		))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+	defer cancel()
+
+	summary, err := h.summaryService.TranslateSummary(ctx, id, req.Language)
+	if err != nil {
+		// Check if it's an Ollama connection error and provide a more helpful message
+		errStr := err.Error()
+		if strings.Contains(errStr, "Ollama servisi çalışmıyor") || 
+		   strings.Contains(errStr, "connection refused") ||
+		   strings.Contains(errStr, "dial tcp") {
+			errors.AbortWithError(c, errors.NewWithDetail(
+				errors.ErrorCodeProviderUnavailable,
+				errors.SubCodeProviderUnavailable,
+				"Ollama servisi çalışmıyor",
+				"Ollama servisinin başlatıldığından ve modelin yüklendiğinden emin olun. 'docker compose up -d ollama' ve 'docker compose exec ollama ollama pull llama3.2' komutlarını çalıştırın.",
+			))
+			return
+		}
+		errors.HandleError(c, err)
+		return
+	}
 
 	c.JSON(http.StatusOK, summary)
 }

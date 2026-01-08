@@ -196,22 +196,131 @@ func (s *Service) generateSummaryWithProvider(
 
 	// Record token usage and cost
 	if s.costService != nil {
+		s.costService.RecordUsage(ctx, videoID, "summary", llmProvider.GetModelInfo().Provider, llmProvider.GetModelInfo().Name, resp.InputTokens, resp.OutputTokens)
+	}
+
+	return summary, nil
+}
+
+// TranslateSummary translates an existing summary to a different language
+func (s *Service) TranslateSummary(
+	ctx context.Context,
+	videoID uuid.UUID,
+	targetLanguage string,
+) (*models.Summary, error) {
+	// Get existing summary
+	existingSummary, err := s.summaryRepo.GetByVideoID(ctx, videoID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get existing summary: %w", err)
+	}
+	if existingSummary == nil {
+		return nil, fmt.Errorf("no summary found for video")
+	}
+
+	// Get LLM provider from settings
+	llmProvider, err := s.providerFactory.GetLLMProvider(ctx, "summary")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get LLM provider: %w", err)
+	}
+
+	// Create translation prompt
+	keyPointsText := ""
+	if len(existingSummary.KeyPoints) > 0 {
+		keyPointsText = "\n\nKey Points:\n" + strings.Join(existingSummary.KeyPoints, "\n")
+	}
+	
+	// Get language name for better translation quality
+	languageName := s.getLanguageName(targetLanguage)
+	
+	translationPrompt := fmt.Sprintf(`Translate the following text to %s.
+
+CRITICAL: Return ONLY the translated text. Do NOT include instructions, requirements, or any meta-commentary. Output only the pure translation.
+
+Requirements (follow these but do not include them in output):
+- Natural, fluent %s as if originally written in %s
+- Fix grammar errors and improve sentence structure
+- Keep exact Markdown format (## for headings, - for bullets)
+- Preserve technical terms, names, and proper nouns exactly
+- Proper grammar, punctuation, spelling in %s
+- Same structure: summary first, then key points
+- Complete translation to %s (no mixed languages)
+
+Text to translate:
+%s%s
+
+Output:`, 
+		languageName,
+		languageName,
+		languageName,
+		languageName,
+		languageName,
+		existingSummary.Content,
+		keyPointsText)
+
+	// Generate translation using LLM
+	req := llm.CompletionRequest{
+		Prompt:      translationPrompt,
+		SystemPrompt: fmt.Sprintf("You are an expert professional translator with native-level proficiency in %s. Your translations are always natural, accurate, grammatically correct, and maintain the original meaning while reading as if originally written in %s.", languageName, languageName),
+		MaxTokens:   3000, // Increased for better quality translations
+		Temperature: 0.2, // Lower temperature for more accurate and consistent translation
+		TopP:        0.95,
+	}
+
+	resp, err := llmProvider.GenerateCompletion(ctx, req)
+	if err != nil {
+		// Check if it's an Ollama connection error
+		errStr := err.Error()
+		if strings.Contains(errStr, "connection refused") || 
+		   strings.Contains(errStr, "dial tcp") ||
+		   strings.Contains(errStr, "no such host") {
+			modelInfo := llmProvider.GetModelInfo()
+			if modelInfo.Provider == "ollama" {
+				return nil, fmt.Errorf("Ollama servisi çalışmıyor. Lütfen Ollama servisinin başlatıldığından emin olun: %w", err)
+			}
+		}
+		return nil, fmt.Errorf("failed to translate summary: %w", err)
+	}
+
+	// Parse translated content and key points
+	translatedContent := resp.Content
+	translatedKeyPoints := s.extractKeyPoints(translatedContent)
+	
+	// If no key points extracted but original had them, use original (translation might have merged them)
+	if len(translatedKeyPoints) == 0 && len(existingSummary.KeyPoints) > 0 {
+		// Try to extract from content again with different pattern
+		translatedKeyPoints = s.extractKeyPoints(translatedContent)
+	}
+
+	// Create translated summary model (keep same type, update model info)
+	translatedSummary := &models.Summary{
+		VideoID:     videoID,
+		ModelUsed:   existingSummary.ModelUsed + " (translated to " + targetLanguage + ")",
+		SummaryType: existingSummary.SummaryType,
+		Content:     translatedContent,
+		KeyPoints:   translatedKeyPoints,
+	}
+
+	// Save translated summary (this will update the existing one)
+	if err := s.summaryRepo.Create(ctx, translatedSummary); err != nil {
+		return nil, fmt.Errorf("failed to save translated summary: %w", err)
+	}
+
+	// Record token usage and cost
+	if s.costService != nil {
 		modelInfo := llmProvider.GetModelInfo()
 		inputTokens := resp.InputTokens
 		if inputTokens == 0 {
-			// Fallback: estimate tokens (rough approximation: 1 token ≈ 4 characters)
-			inputTokens = len(prompt) / 4
+			inputTokens = len(translationPrompt) / 4
 		}
 		outputTokens := resp.OutputTokens
 		if outputTokens == 0 && resp.TokensUsed > 0 {
-			// Fallback: use total tokens if output tokens not available
 			outputTokens = resp.TokensUsed - inputTokens
 		}
 		
 		_ = s.costService.RecordUsage(
 			ctx,
 			videoID,
-			"summarization",
+			"summary_translation",
 			modelInfo.Provider,
 			modelInfo.Name,
 			inputTokens,
@@ -219,9 +328,9 @@ func (s *Service) generateSummaryWithProvider(
 		)
 	}
 
-	s.logger.Info("Summary generated", zap.String("video_id", videoID.String()), zap.String("type", summaryType))
+	s.logger.Info("Summary translated", zap.String("video_id", videoID.String()), zap.String("target_language", targetLanguage))
 
-	return summary, nil
+	return translatedSummary, nil
 }
 
 func (s *Service) extractKeyPoints(content string) []string {
@@ -303,4 +412,37 @@ func (s *Service) extractKeyPoints(content string) []string {
 	}
 
 	return keyPoints
+}
+
+// getLanguageName returns the full language name for a given language code
+func (s *Service) getLanguageName(languageCode string) string {
+	languageMap := map[string]string{
+		"en": "English",
+		"tr": "Turkish",
+		"es": "Spanish",
+		"fr": "French",
+		"de": "German",
+		"it": "Italian",
+		"pt": "Portuguese",
+		"ru": "Russian",
+		"ja": "Japanese",
+		"ko": "Korean",
+		"zh": "Chinese",
+		"ar": "Arabic",
+		"hi": "Hindi",
+		"nl": "Dutch",
+		"pl": "Polish",
+		"sv": "Swedish",
+		"da": "Danish",
+		"no": "Norwegian",
+		"fi": "Finnish",
+	}
+	
+	langName, ok := languageMap[strings.ToLower(languageCode)]
+	if ok {
+		return langName
+	}
+	
+	// If language code not found, capitalize first letter and use as-is
+	return strings.Title(strings.ToLower(languageCode))
 }
